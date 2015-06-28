@@ -1,0 +1,21 @@
+<html>
+    <head>
+        <title>Scheduling Algorithms</title>
+        <!--link rel=stylesheet type=text/css href="{{ url_for('static', filename='style.css') }}"-->
+    </head>
+    <body>
+        <div>
+            <div>
+                <h1>Enter Number of processes</h1>
+            </div>
+            <div>
+                <form method="post" action="{{ url_for('procdetails') }}">
+                  <label for="yourname">Number of processes:</label>
+                  <input type="text" name="noOfProcs" /><br />
+                  <input type="submit" />
+                </form>
+            </div>
+
+        </div>
+    </body>
+</html>
