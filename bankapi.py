@@ -195,9 +195,10 @@ def update_resource(table_name):
     record = {}
     fields = DB.getFields(table_name)
     for F in fields:
-        if F in request.json:
-            record[F] = request.json[F]
+        #if F in request.json:
+        #    record[F] = request.json[F]
         #there must be an 'id' field in record
+        record = request.json
         if not 'id' in record:
             return jsonify({'error':"no id in record"}), 410
         else:
