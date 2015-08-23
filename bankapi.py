@@ -75,14 +75,14 @@ class database:
         for t in self.tables:
             self.nextId[t] = 0
             for r in self.tables[t]:
-                if r['id'] > self.nextId[t]:
+                if r['id'] >= self.nextId[t]:
                     self.nextId[t] = r['id']+1
 
     def getTable(self, tableName):
         if tableName in self.tables:
             return self.tables[tableName]
         else:
-            return None 
+            return None
     def getFields(self, tableName):
         #returns all fields for give table name
         if tableName in self.tables:
@@ -105,7 +105,7 @@ class database:
     def findIndex(self, tableName, item_id):
         #finds index in list of record for given
         item_id = int(item_id) #just in case
-        index = None 
+        index = None
         for i in range(0, len(self.tables[tableName])):
             if int(self.tables[tableName][i]['id']) == item_id:
                 index = i
@@ -142,7 +142,7 @@ class database:
         missingFields = self.checkMandFields(tableName, record)
         if len(missingFields)>0:
             #we don't have enough fields, need to update
-            return {'missingFields': missingFields, 'error': 2}
+            return {'missingFields': missingFields, 'error': "not enough data"}
         #now we can create a unique record, let's add a new id to the record:
         newid = self.newId(tableName)
         record['id'] = newid
@@ -250,10 +250,6 @@ class database:
 #webapp part:
 DB = database(customers, accounts, cards, transactions, mandatoryFields)
 
-runFlask = False #added for testing in no-flask environment 
-if not runFlask:
-    print DB.cardTransaction({'card_id':1, 'amount': -2000})
-    exit()
 
 from flask import Flask, jsonify, request
 from flask.ext.httpauth import HTTPBasicAuth
@@ -273,21 +269,31 @@ def get_password(username):
 def unauthorized():
     return jsonify({'error': 'Unauthorized access'})
 
-@app.route('/bank/api/v1.0/<string:table_name>', methods = ['GET'])
+@app.route('/bank/api/v1.0/resources/<string:table_name>', methods = ['GET'])
 @auth.login_required
 def get_tables(table_name):
     #return records for given table and for given id:
     return jsonify({table_name:DB.getTable(table_name)})
 
-@app.route('/bank/api/v1.0/<string:table_name>/<int:id>', methods = ['GET'])
+@app.route('/bank/api/v1.0/resources/<string:table_name>/<int:id>', methods = ['GET'])
 @auth.login_required
 def get_records(table_name,id):
     #return records for given table and for given id:
     record = DB.find(table_name,'id',id)
     return jsonify({table_name:record})
 
+@app.route('/bank/api/v1.0/balance/<int:account_id>', methods = ['GET'])
+@auth.login_required
+def get_balance(account_id):
+    #return records for given table and for given id:
+    index = DB.findIndex("accounts", account_id)
+    if index == None:
+        return jsonify({"error":"account id not found: " + str(account_id)})
+    balance = DB.checkBalance(account_id)
+    return jsonify({"balance":balance})
+
 #@app.route('/bank/api/v1.0/customers', methods = ['POST'])
-@app.route('/bank/api/v1.0/<string:table_name>', methods = ['POST'])
+@app.route('/bank/api/v1.0/resources/<string:table_name>', methods = ['POST'])
 @auth.login_required
 def create_resource(table_name):
     record = {}
@@ -337,10 +343,13 @@ def add_transfer():
     return jsonify({'transaction':record}), 201
 
 #route for updating a record
-@app.route('/bank/api/v1.0/<string:table_name>', methods = ['PUT'])
+@app.route('/bank/api/v1.0/resources/<string:table_name>', methods = ['PUT'])
 @auth.login_required
 def update_resource(table_name):
     record = {}
+    if table_name in ["transactions"]:
+        #not allowed to edit transactions directly
+        return jsonify({'error':'this table can not be modified directly'}), 410
     fields = DB.getFields(table_name)
     for F in fields:
         if F in request.json:
@@ -354,12 +363,15 @@ def update_resource(table_name):
         record = DB.update(table_name, record)
         return jsonify({DB.recordName(table_name):record})
 
-@app.route('/bank/api/v1.0/<string:table_name>/<int:id>', methods = ['PUT'])
+@app.route('/bank/api/v1.0/resources/<string:table_name>/<int:id>', methods = ['PUT'])
 @auth.login_required
 def update_resource_by_id(table_name, id):
+    if table_name in ["transactions"]:
+        #not allowed to edit transactions directly
+        return jsonify({'error':'this table can not be modified directly'}), 410
     index = DB.findIndex(table_name, id)
     if index == None:
-        return {"error":"id not found: " + str(id)}
+        return jsonify({"error":"id not found: " + str(id)})
     record = {"id": DB.tables[table_name][index]["id"]}
     fields = DB.getFields(table_name)
     for F in fields:
@@ -375,19 +387,23 @@ def update_resource_by_id(table_name, id):
         return jsonify({DB.recordName(table_name):record})
 
 
-@app.route('/bank/api/v1.0/<string:table_name>/<int:id>', methods = ['DELETE'])
+@app.route('/bank/api/v1.0/resources/<string:table_name>/<int:id>', methods = ['DELETE'])
 @auth.login_required
 def delete_resource_by_id(table_name, id):
+    if table_name in ["transactions"]:
+        #not allowed to edit transactions directly
+        return jsonify({'error':'this table can not be modified directly'}), 410
     return jsonify({"deleted" : DB.delete(table_name, id)})
 
 
 @app.route('/')
 def home():
     HTML = '<p>Welcome in bankapi project main page!</p>'
-    HTML += "<p>The API has the following resources available through GET method:</p>"
-    HTML += "<p></p>"
-    HTML += "<p></p>"
-    HTML += "<p></p>"
+    HTML += "<p>The API has the following resources available through GET methods:</p>"
+    HTML += "<p>Customers</p>"
+    HTML += "<p>Accounts</p>"
+    HTML += "<p>Cards</p>"
+    HTML += "<p>For other resources there is more advanced client application required (like Advanced REST client add-on or curl)</p>"
     HTML += "<p>For security reasons all requests must contain username and password, for the presentation purposes username: superuser with password webapi is available</p>"
     return HTML
 
