@@ -91,8 +91,10 @@ class database:
         return records
     def findIndex(self, tableName, id):
         #finds index in list of record for given
+        id = int(id) #just in case
+        index = False
         for i in range(0, len(self.tables[tableName])):
-            if self.tables[tableName][i]['id']:
+            if int(self.tables[tableName][i]['id']) == id:
                 index = i
                 break
         return index
@@ -119,7 +121,7 @@ class database:
     def recordName(self, tableName):
         #all tables are regular nouns
         return tableName[:-1]
-def create(self, tableName, record):
+    def create(self, tableName, record):
         #creates record in table:
         t = self.getTable(tableName)
         if not t:
@@ -133,17 +135,37 @@ def create(self, tableName, record):
         record['id'] = id
         self.tables[tableName].append(record)
         self.addFields(tableName, id)
-def update(self, tableName, record):
+        #find created record:
+        index = self.findIndex(tableName, id)
+        #return full record:
+        return self.tables[tableName][index]
+    def update(self, tableName, record):
         #creates record in table:
         t = self.getTable(tableName)
         if not t:
             return {'error': 1} #error code for no_table, 0 is no error
         #now we can update record
-        i = self.findIndex(tableName, record['id'])
+        i = self.findIndex(tableName, int(record['id']))
+        if i == False:
+            return {'error':"no record with given id: "+str(record['id'])}
+
         for F in self.tables[tableName][i]:
             if F in record:
                 self.tables[tableName][i][F] = record[F]
         return self.tables[tableName][i] #return complete record.
+    def delete(self, tableName, id):
+        #creates record in table:
+        t = self.getTable(tableName)
+        if not t:
+            return {'error': 1} #error code for no_table, 0 is no error
+        #now we can DELETE record
+        i = self.findIndex(tableName, id)
+        if i == False:
+            return {'error':"no record with given id: "+str(id)}
+        record = self.tables[tableName][i]
+        #delete list element:
+        self.tables[tableName].__delitem__(i)
+        return record
 
 
 class Model:
@@ -157,22 +179,29 @@ class Model:
 DB = database(customers, accounts, cards, transactions, mandatoryFields)
 app = Flask(__name__)
 
-#@app.route('/bank/api/v1.0/customers/')
-#def get_customers():
-#    return jsonify({'customers':DB.getTable('customers')})
+from flask.ext.httpauth import HTTPBasicAuth
+auth = HTTPBasicAuth()
 
-#@app.route('/bank/api/v1.0/customers/<int:customer_id>', methods = ['GET'])
-#def get_customer(customer_id):
-#    #customer = [customer for customer in customers if customer['id'] == customer_id]
-#    customer = DB.find('customers','id',customer_id)
-#    return jsonify({'customer':customer})
+#define username and password:
+@auth.get_password
+def get_password(username):
+    if username == 'superuser':
+        return 'webapi'
+    return None
+
+#define response in case of unauthorized access:
+@auth.error_handler
+def unauthorized():
+    return jsonify({'error': 'Unauthorized access'})
 
 @app.route('/bank/api/v1.0/<string:table_name>', methods = ['GET'])
+@auth.login_required
 def get_tables(table_name):
     #return records for given table and for given id:
     return jsonify({table_name:DB.getTable(table_name)})
 
 @app.route('/bank/api/v1.0/<string:table_name>/<int:id>', methods = ['GET'])
+@auth.login_required
 def get_records(table_name,id):
     #return records for given table and for given id:
     record = DB.find(table_name,'id',id)
@@ -180,35 +209,71 @@ def get_records(table_name,id):
 
 #@app.route('/bank/api/v1.0/customers', methods = ['POST'])
 @app.route('/bank/api/v1.0/<string:table_name>', methods = ['POST'])
+@auth.login_required
 def create_resource(table_name):
     record = {}
     fields = DB.getFields(table_name)
     for F in fields:
         if F in request.json:
             record[F] = request.json[F]
-    DB.create(table_name, record)
+    record = DB.create(table_name, record)
     return jsonify({DB.recordName(table_name):record}), 201
 
 #route for updating a record
 @app.route('/bank/api/v1.0/<string:table_name>', methods = ['PUT'])
+@auth.login_required
 def update_resource(table_name):
     record = {}
     fields = DB.getFields(table_name)
     for F in fields:
-        #if F in request.json:
-        #    record[F] = request.json[F]
+        if F in request.json:
+            record[F] = request.json[F]
+        #record["id"] = 1
         #there must be an 'id' field in record
-        record = request.json
-        if not 'id' in record:
-            return jsonify({'error':"no id in record"}), 410
-        else:
-            record = DB.update(table_name, record)
-            return jsonify({DB.recordName(table_name):record})
+        #record = request.json
+    if not 'id' in record:
+        return jsonify({'error':"no id in record"}), 410
+    else:
+        record = DB.update(table_name, record)
+        return jsonify({DB.recordName(table_name):record})
+
+@app.route('/bank/api/v1.0/<string:table_name>/<int:id>', methods = ['PUT'])
+@auth.login_required
+def update_resource_by_id(table_name, id):
+    index = DB.findIndex(table_name, id)
+    if index == False:
+        return {"error":"id not found: " + str(id)}
+    record = {"id": DB.tables[table_name][index]["id"]}
+    fields = DB.getFields(table_name)
+    for F in fields:
+        if F in request.json:
+            record[F] = request.json[F]
+        #record["id"] = 1
+        #there must be an 'id' field in record
+        #record = request.json
+    if not 'id' in record:
+        return jsonify({'error':"no id in record"}), 410
+    else:
+        record = DB.update(table_name, record)
+        return jsonify({DB.recordName(table_name):record})
+
+
+@app.route('/bank/api/v1.0/<string:table_name>/<int:id>', methods = ['DELETE'])
+@auth.login_required
+def delete_resource_by_id(table_name, id):
+    return jsonify({"deleted" : DB.delete(table_name, id)})
 
 
 @app.route('/')
 def home():
-    return 'Welcome in bankapi project main page!'
+    HTML = '<p>Welcome in bankapi project main page!</p>'
+    HTML += "<p>The API has the following resources available through GET method:</p>"
+    HTML += "<p></p>"
+    HTML += "<p></p>"
+    HTML += "<p></p>"
+    HTML += "<p>For security reasons all requests must contain username and password, for the presentation purposes username: superuser with password webapi is available</p>"
+    return HTML
+
 
 if __name__ == "__main__":
     app.run()
